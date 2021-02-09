@@ -4,6 +4,26 @@ title: NodeJS多线程库Threads
 date: 2021-02-05 11:56:24.000000000 +08:00
 ---
 
+<!-- TOC -->
+
+- [前言](#前言)
+- [Threads.js 整体设计](#threadsjs-整体设计)
+- [线程封装](#线程封装)
+  - [工作线程封装函数: expose](#工作线程封装函数-expose)
+  - [主线程封装函数: spawn](#主线程封装函数-spawn)
+- [线程间信息传递](#线程间信息传递)
+  - [序列化](#序列化)
+  - [信息通知](#信息通知)
+- [线程池](#线程池)
+  - [Task](#task)
+  - [Pool](#pool)
+  - [Event Observer](#event-observer)
+  - [Queue](#queue)
+  - [Scheduler](#scheduler)
+- [总结](#总结)
+
+<!-- /TOC -->
+
 ## 前言
 
 threads.js 是个风格良好的JS worker库，它不仅对NodeJS原生的worker线程做了优雅的封装，并且可在版本NodeJS 8 - 12、Web browser中使用，同时提供给用户统一的体验。
