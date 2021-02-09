@@ -4,6 +4,8 @@ title: NodeJS多线程库Threads
 date: 2021-02-05 11:56:24.000000000 +08:00
 ---
 
+> NodeJS作为server端的运行环境，在低资源占用的情况下，处理高IO有很大的优势。然而对于密集型计算的任务却有些力不从心，虽然早已引入worker线程，但依然依然在使用上有诸多不便。本文介绍一种NodeJS三方库: ThreadsJS, 使用者可以快速使NodeJS具有复杂场景下密集计算的能力。
+
 <!-- TOC -->
 
 - [前言](#前言)
@@ -26,7 +28,7 @@ date: 2021-02-05 11:56:24.000000000 +08:00
 
 ## 前言
 
-threads.js 是个风格良好的JS worker库，它不仅对NodeJS原生的worker线程做了优雅的封装，并且可在版本NodeJS 8 - 12、Web browser中使用，同时提供给用户统一的体验。
+ThreadsJS 是个风格良好的js worker库，它不仅对NodeJS原生的worker线程做了优雅的封装，并且可在版本NodeJS 8 - 12、Web browser中使用，同时提供给用户统一的体验。
 
 作者[Andy Wermke](https://andywer.com/)拥有丰富的NodeJS开发经验，因此threads.js有自己独特的风格和编码规范，很值得学习和借鉴。
 
