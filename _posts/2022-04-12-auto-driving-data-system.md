@@ -52,3 +52,7 @@ date: 2022-04-12 21:41:24.000000000 +08:00
 - 3D渲染: Dreamview使用了轮询的方式向`Dreamview backend`请求数据，获取到的数据会使用`React`状态管理组件`Store`存储起来，然后各个UI组件通过观察绑定的方式更新组件页面。对于3D渲染部分各个UI组件都是引用[three.js](https://github.com/mrdoob/three.js)进行渲染，在渲染效率和整体性能上并不如Deck.gl高。
 
 ![Dreamview UI](/images/data_system/dv_trajectory.png)
+
+## 总结
+
+自动驾驶数据平台作为自动驾驶开发流程中核心和基础的一环，对加速自动驾驶数据闭环驱动和迭代开发有支撑作用。一个好的数据平台系统不仅可以满足各个业务系统的使用，同时也成为一个重要的量化工具，来证明自动驾驶软件系统的迭代改进。接下来我会通过两篇文章具体来分析`Streetscape`和`Dreamview`的具体实现和优缺点分析，请大家敬请期待。
