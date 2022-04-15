@@ -31,7 +31,7 @@ date: 2022-04-12 21:41:24.000000000 +08:00
 
 ### Streetscape
 
-![Streetscape structure](/images/data_system/2022-04-13_18-06.png)
+![Streetscape structure](/images/data_system/2022-04-13_18-06.png){:width="60%"}
 
 - 数据生产: `Xviz Converters` 主要负责讲传感器数据转换为数据平台后端可解析的数据格式，已文件存储在硬盘上。
 
@@ -39,11 +39,11 @@ date: 2022-04-12 21:41:24.000000000 +08:00
 
 - 3D 渲染: Streetscape 底层使用了一个 WebGL 的渲染库[deck.gl](https://deck.gl)来渲染 3D 场景，`deck.gl`主要思想是把数据分层，可分别动态更新没一层的数据，从而提高灵活性和性能。Streetscape 主要实现了 xviz 数据层属性到 layer 属性的转换，并实现了 3D 渲染的 React UI。
 
-![Streetscape UI](/images/data_system/2022-04-14_19-32.png)
+![Streetscape UI](/images/data_system/2022-04-14_19-32.png){:width="80%"}
 
 ### Dreamview
 
-![Streetscape structure](/images/data_system/2022-04-13_18-07.png)
+![Streetscape structure](/images/data_system/2022-04-13_18-07.png){:width="60%"}
 
 - 数据生产: 在Apollo中，有一个通用计算框架Cyber, 这是个计算调度和数据分发系统，底层是根据eProsima公司的开源项目[Fast-DDS](https://github.com/eProsima/Fast-DDS)进行开发。其中数据生产的工具就在cyber其中，使用record工具可以将cyber所收集的所有硬件与软件数据记录到文件当中，文件内的数据proto的二进制内容，可存储在硬盘上进行回放。
 
@@ -51,7 +51,7 @@ date: 2022-04-12 21:41:24.000000000 +08:00
 
 - 3D渲染: Dreamview使用了轮询的方式向`Dreamview backend`请求数据，获取到的数据会使用`React`状态管理组件`Store`存储起来，然后各个UI组件通过观察绑定的方式更新组件页面。对于3D渲染部分各个UI组件都是引用[three.js](https://github.com/mrdoob/three.js)进行渲染，在渲染效率和整体性能上并不如Deck.gl高。
 
-![Dreamview UI](/images/data_system/dv_trajectory.png)
+![Dreamview UI](/images/data_system/dv_trajectory.png){:width="80%"}
 
 ## 总结
 
