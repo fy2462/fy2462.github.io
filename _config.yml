@@ -1,10 +1,9 @@
 # Basic
-title: 冯岩(Michael F)的站点
-subtitle: Yan Feng's website
-email: fy2462@163.com
-welcome_message: <a href="#" target="_blank">Welcome guys</a>
-description: >
-    Make some amazing
+title: Welcome
+subtitle: Yan Feng's blog
+email: fy2462@gmail.com
+welcome_message: <a href="#" target="_blank"></a>
+description:
 creator: <a href="https://fy2462.github.io">@fy2462</a>
 
 url: "https://fy2462.github.io"
@@ -39,7 +38,7 @@ comment:
 # Social
 social:
     github: fy2462
-    mail: fy2462@163.com
+    mail: fy2462@gmail.com
 
 # Google Analytics
 ga:
