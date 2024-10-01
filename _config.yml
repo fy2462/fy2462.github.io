@@ -44,3 +44,6 @@ social:
 ga:
     # id: your_ga_id
     # host: your_host
+
+kramdown:
+  math_engine: MathJax
