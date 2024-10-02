@@ -562,4 +562,409 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
 
 ## 3. 初始化KVCache
 
+**线条3.1**: 在LLMEngine初始化的时候，我们会根据执行器获取的GPU、CPU存储大小，计算出block数量，然后初始化KVCache。调用initialize_cache方法进行cache初始化。最终这个请求会通过Ray传递给Worker。我们来看一下代码, 主要执行两个方法_init_cache_engine和_warm_up_model
 
+```python
+def _init_cache_engine(self):
+    assert self.cache_config.num_gpu_blocks is not None
+    # 根据PP的大小，对每一个pipeline初始化一个CacheEngine
+    self.cache_engine = [
+        CacheEngine(self.cache_config, self.model_config,
+                    self.parallel_config, self.device_config)
+        for _ in range(self.parallel_config.pipeline_parallel_size)
+    ]
+    self.gpu_cache = [
+        # 取出gpu_cache方便使用
+        self.cache_engine[ve].gpu_cache
+        for ve in range(self.parallel_config.pipeline_parallel_size)
+    ]
+
+def _warm_up_model(self) -> None:
+    if not self.model_config.enforce_eager:
+        # 通过创建一个假数据初始化验证模型，并且执行cuda graph
+        self.model_runner.capture_model(self.gpu_cache)
+    # Reset the seed to ensure that the random state is not affected by
+    # the model initialization and profiling.
+    set_random_seed(self.model_config.seed)
+```
+
+**线条3.2** 了解大致逻辑后，我们来看一下CacheEngine的创建
+
+```python
+class CacheEngine:
+    def __init__(
+        self,
+        cache_config: CacheConfig,
+        model_config: ModelConfig,
+        parallel_config: ParallelConfig,
+        device_config: DeviceConfig,
+    ) -> None:
+        # 常规参数
+        self.cache_config = cache_config
+        self.model_config = model_config
+        self.parallel_config = parallel_config
+        self.device_config = device_config
+
+        self.head_size = model_config.get_head_size()
+        # Models like Jamba, have mixed typed layers, E.g Mamba
+        # 这里会根据pp配置，将层分段，分配给当前CacheEngine
+        self.num_attention_layers = model_config.get_num_attention_layers(
+            parallel_config)
+        # total_num_kv_heads // parallel_config.tensor_parallel_size
+        self.num_kv_heads = model_config.get_num_kv_heads(parallel_config)
+
+        self.block_size = cache_config.block_size
+        self.num_gpu_blocks = cache_config.num_gpu_blocks
+        if self.num_gpu_blocks:
+            self.num_gpu_blocks //= parallel_config.pipeline_parallel_size
+        self.num_cpu_blocks = cache_config.num_cpu_blocks
+        if self.num_cpu_blocks:
+            self.num_cpu_blocks //= parallel_config.pipeline_parallel_size
+
+        if cache_config.cache_dtype == "auto":
+            self.dtype = model_config.dtype
+        else:
+            self.dtype = STR_DTYPE_TO_TORCH_DTYPE[cache_config.cache_dtype]
+
+        # 或者attention backedn的部分
+        self.attn_backend = get_attn_backend(
+            model_config.get_num_attention_heads(parallel_config),
+            self.head_size,
+            self.num_kv_heads,
+            model_config.get_sliding_window(),
+            model_config.dtype,
+            cache_config.cache_dtype,
+            self.block_size,
+        )
+
+        # Initialize the cache.
+        # 根据num_gpu_blocks数量和设备类型分配
+        self.gpu_cache = self._allocate_kv_cache(
+            self.num_gpu_blocks, self.device_config.device_type)
+        self.cpu_cache = self._allocate_kv_cache(self.num_cpu_blocks, "cpu")
+
+    def _allocate_kv_cache(
+        self,
+        num_blocks: int,
+        device: str,
+    ) -> List[torch.Tensor]:
+        """Allocates KV cache on the specified device."""
+        # 直接使用attn_backend接口创建cache
+        kv_cache_shape = self.attn_backend.get_kv_cache_shape(
+            num_blocks, self.block_size, self.num_kv_heads, self.head_size)
+        pin_memory = is_pin_memory_available() if device == "cpu" else False
+        kv_cache: List[torch.Tensor] = []
+        for _ in range(self.num_attention_layers):
+            # null block in CpuGpuBlockAllocator requires at least that
+            # block to be zeroed-out.
+            # We zero-out everything for simplicity.
+            kv_cache.append(
+                torch.zeros(kv_cache_shape,
+                            dtype=self.dtype,
+                            pin_memory=pin_memory,
+                            device=device))
+        return kv_cache
+
+    def swap_in(self, src_to_dst: torch.Tensor) -> None:
+        for i in range(self.num_attention_layers):
+            self.attn_backend.swap_blocks(self.cpu_cache[i], self.gpu_cache[i],
+                                          src_to_dst)
+
+    def swap_out(self, src_to_dst: torch.Tensor) -> None:
+        for i in range(self.num_attention_layers):
+            self.attn_backend.swap_blocks(self.gpu_cache[i], self.cpu_cache[i],
+                                          src_to_dst)
+
+    def copy(self, src_to_dsts: torch.Tensor) -> None:
+        self.attn_backend.copy_blocks(self.gpu_cache, src_to_dsts)
+
+    @staticmethod
+    def get_cache_block_size(
+        cache_config: CacheConfig,
+        model_config: ModelConfig,
+        parallel_config: ParallelConfig,
+    ) -> int:
+        # FlashAttention supports only head_size 32, 64, 128, 256,
+        # we need to pad head_size 192 to 256
+        head_size = model_config.get_head_size()
+        # total_num_kv_heads // parallel_config.tensor_parallel_size
+        num_heads = model_config.get_num_kv_heads(parallel_config)
+        num_attention_layers = model_config.get_num_attention_layers(
+            parallel_config)
+
+        key_cache_block = cache_config.block_size * num_heads * head_size
+        value_cache_block = key_cache_block
+        total = num_attention_layers * (key_cache_block + value_cache_block)
+        if cache_config.cache_dtype == "auto":
+            dtype = model_config.dtype
+        else:
+            dtype = STR_DTYPE_TO_TORCH_DTYPE[cache_config.cache_dtype]
+        dtype_size = get_dtype_size(dtype)
+        # 缓存总大小, num_heads_for_current_cache为当前分块的heads数量
+        # KVCacheMemory = 2 * (batch_size * num_heads_for_current_cache * head_size) * num_layers * dtype_size
+        return dtype_size * total
+```
+
+## 4. 模型推理
+
+* **线条4**: 真正进行推理的时候到了，无论是同步和异步调用，我们最终都会通过执行器的execute_model方法，传递execute_model_req给model去推理。那么对于Ray框架，我们首先要关联分布式服务的入口和出口数据(4.1)。可以通过_compiled_ray_dag来实现
+
+```python
+def _compiled_ray_dag(self, enable_asyncio: bool):
+    assert self.parallel_config.use_ray
+    self._check_ray_adag_installation()
+    from ray.dag import InputNode, MultiOutputNode
+    from ray.experimental.channel.torch_tensor_type import TorchTensorType
+
+    logger.info("VLLM_USE_RAY_COMPILED_DAG_NCCL_CHANNEL = %s",
+                envs.VLLM_USE_RAY_COMPILED_DAG_NCCL_CHANNEL)
+    with InputNode() as input_data:
+        # Example DAG: PP=2, TP=4
+        # (ExecuteModelReq, None) -> 0 -> (ExecuteModelReq, IntermediateOutput) -> 4 -> SamplerOutput   # noqa: E501
+        #                         -> 1 -> (ExecuteModelReq, IntermediateOutput) -> 5 -> SamplerOutput   # noqa: E501
+        #                         -> 2 -> (ExecuteModelReq, IntermediateOutput) -> 6 -> SamplerOutput   # noqa: E501
+        #                         -> 3 -> (ExecuteModelReq, IntermediateOutput) -> 7 -> SamplerOutput   # noqa: E501
+
+        # All workers in the first TP group will take in the
+        # ExecuteModelRequest as input.
+        outputs = [input_data for _ in self.pp_tp_workers[0]]
+        for pp_rank, tp_group in enumerate(self.pp_tp_workers):
+            # Each PP worker takes in the output of the previous PP worker,
+            # and the TP group executes in SPMD fashion.
+            # 对所有tp worker实体，绑定execute_model_spmd的输入和输出
+            outputs = [
+                worker.execute_model_spmd.
+                bind(  # type: ignore[attr-defined]
+                    outputs[i]) for i, worker in enumerate(tp_group)
+            ]
+
+            last_pp_rank = len(self.pp_tp_workers) - 1
+            if pp_rank < last_pp_rank:
+                # Specify how intermediate tensors should be passed
+                # between pp stages, no need to specify for the last
+                # pp stage.
+                transport = "nccl" \
+                    if envs.VLLM_USE_RAY_COMPILED_DAG_NCCL_CHANNEL \
+                    else "auto"
+                # 使用nccl进行分发
+                outputs = [
+                    output.with_type_hint(
+                        TorchTensorType(transport=transport))
+                    for output in outputs
+                ]
+        # 绑定execute_model_spmd输出
+        forward_dag = MultiOutputNode(outputs)
+
+    return forward_dag.experimental_compile(enable_asyncio=enable_asyncio)
+```
+
+* **线条5**: 执行请求转发, 这会通过Ray框架，直接调用worker中的execute_model_spmd方法(5.1), 
+
+```python
+
+def execute_model_spmd(
+    self, req_or_tuple: Union[bytes, Tuple[bytes, Optional[IntermediateTensors]]]
+    ) -> bytes:
+        if isinstance(req_or_tuple, bytes):
+            serialized_req, intermediate_tensors = req_or_tuple, None
+        else:
+            serialized_req, intermediate_tensors = req_or_tuple
+        # 反序列化数据
+        execute_model_req = self.input_decoder.decode(serialized_req)
+
+        import torch
+        if not self.compiled_dag_cuda_device_set:
+            torch.cuda.set_device(self.worker.device)
+            self.compiled_dag_cuda_device_set = True
+        # 模型执行推理
+        output = self.worker._execute_model_spmd(execute_model_req,
+                                                    intermediate_tensors)
+        # Pipeline model request and output to the next pipeline stage.
+        if isinstance(output, IntermediateTensors):
+            output = serialized_req, output
+        else:
+            output = self.output_encoder.encode(output)
+
+        return output
+
+ def _execute_model_spmd(
+        self,
+        execute_model_req: ExecuteModelRequest,
+        intermediate_tensors: Optional[IntermediateTensors] = None
+    ) -> Optional[List[SamplerOutput]]:
+        assert execute_model_req is not None, (
+            "_execute_model_spmd() requires each worker to take in an "
+            "ExecuteModelRequest")
+        # 转换成worker输入
+        worker_input: WorkerInput = self.prepare_worker_input(
+            execute_model_req=execute_model_req)
+        # 预处理输入
+        model_input: ModelRunnerInputBase = (
+            self.model_runner.prepare_model_input(
+                execute_model_req.seq_group_metadata_list))
+
+        # 换入、换出、复制需要使用的KVCache
+        self.execute_worker(worker_input)
+
+        # If there is no input, we don't need to execute the model.
+        if worker_input.num_seq_groups == 0:
+            return []
+
+        kwargs = extract_previous_hidden_states(execute_model_req)
+        # 推理
+        return self.model_runner.execute_model(
+            model_input=model_input,
+            kv_caches=self.kv_cache[worker_input.virtual_engine]
+            if self.kv_cache is not None else None,
+            intermediate_tensors=intermediate_tensors,
+            **kwargs,
+        )
+```
+**线条5.2** 推理最终是调用runner的 execute_model, 那么我继续分析代码
+
+```python
+@torch.inference_mode()
+@dump_input_when_exception(exclude_args=[0], exclude_kwargs=["self"])
+def execute_model(
+    self,
+    model_input: ModelInputForGPUWithSamplingMetadata,
+    kv_caches: List[torch.Tensor],
+    intermediate_tensors: Optional[IntermediateTensors] = None,
+    num_steps: int = 1,
+) -> Optional[Union[List[SamplerOutput], IntermediateTensors]]:
+    if num_steps > 1:
+        raise ValueError("num_steps > 1 is not supported in ModelRunner")
+
+    if self.lora_config:
+        assert model_input.lora_requests is not None
+        assert model_input.lora_mapping is not None
+        self.set_active_loras(model_input.lora_requests,
+                                model_input.lora_mapping)
+
+    if self.prompt_adapter_config:
+        assert model_input.prompt_adapter_requests is not None
+        assert model_input.prompt_adapter_mapping is not None
+        self.set_active_prompt_adapters(
+            model_input.prompt_adapter_requests,
+            model_input.prompt_adapter_mapping)
+
+    # cuda graph
+    # 调用vllm/attention/backends/flashinfer.py中的begin_forward
+    # 通过flashinfer库来执行begin_forward
+    self.attn_state.begin_forward(model_input)
+
+    # Currently cuda graph is only supported by the decode phase.
+    assert model_input.attn_metadata is not None
+    prefill_meta = model_input.attn_metadata.prefill_metadata
+    decode_meta = model_input.attn_metadata.decode_metadata
+    # TODO(andoorve): We can remove this once all
+    # virtual engines share the same kv cache.
+    virtual_engine = model_input.virtual_engine
+    if prefill_meta is None and decode_meta.use_cuda_graph:
+        assert model_input.input_tokens is not None
+        graph_batch_size = model_input.input_tokens.shape[0]
+        # 获得要执行的model backend
+        model_executable = self.graph_runners[virtual_engine][
+            graph_batch_size]
+    else:
+        model_executable = self.model
+
+    multi_modal_kwargs = model_input.multi_modal_kwargs or {}
+    seqlen_agnostic_kwargs = {
+        "finished_requests_ids": model_input.finished_requests_ids,
+        "request_ids_to_seq_ids": model_input.request_ids_to_seq_ids,
+    } if self.has_seqlen_agnostic else {}
+    # prefile统计
+    if (self.observability_config is not None
+            and self.observability_config.collect_model_forward_time):
+        model_forward_start = torch.cuda.Event(enable_timing=True)
+        model_forward_end = torch.cuda.Event(enable_timing=True)
+        model_forward_start.record()
+
+    # 真正执行cuda graph + data
+    # 执行model文件中的forward代码
+    hidden_or_intermediate_states = model_executable(
+        input_ids=model_input.input_tokens,
+        positions=model_input.input_positions,
+        kv_caches=kv_caches,
+        attn_metadata=model_input.attn_metadata,
+        intermediate_tensors=intermediate_tensors,
+        **MultiModalInputs.as_kwargs(multi_modal_kwargs,
+                                        device=self.device),
+        **seqlen_agnostic_kwargs)
+
+    if (self.observability_config is not None
+            and self.observability_config.collect_model_forward_time):
+        model_forward_end.record()
+
+    # Compute the logits in the last pipeline stage.
+    if not get_pp_group().is_last_rank:
+        if (self.is_driver_worker
+                and hidden_or_intermediate_states is not None
+                and isinstance(hidden_or_intermediate_states,
+                                IntermediateTensors)
+                and self.observability_config is not None
+                and self.observability_config.collect_model_forward_time):
+            model_forward_end.synchronize()
+            model_forward_time = model_forward_start.elapsed_time(
+                model_forward_end)
+            orig_model_forward_time = 0.0
+            if intermediate_tensors is not None:
+                orig_model_forward_time = intermediate_tensors.tensors.get(
+                    "model_forward_time", torch.tensor(0.0)).item()
+            hidden_or_intermediate_states.tensors["model_forward_time"] = (
+                torch.tensor(model_forward_time + orig_model_forward_time))
+        return hidden_or_intermediate_states
+    # 获得多层感知机的输出结果
+    logits = self.model.compute_logits(hidden_or_intermediate_states,
+                                        model_input.sampling_metadata)
+
+    if not self.is_driver_worker:
+        return []
+
+    if model_input.async_callback is not None:
+        model_input.async_callback()
+
+    # Sample the next token.
+    # 对logits根据采样配置进行采样
+    output: SamplerOutput = self.model.sample(
+        logits=logits,
+        sampling_metadata=model_input.sampling_metadata,
+    )
+    if (self.observability_config is not None
+            and self.observability_config.collect_model_forward_time
+            and output is not None):
+        model_forward_end.synchronize()
+        model_forward_time = model_forward_start.elapsed_time(
+            model_forward_end)
+        orig_model_forward_time = 0.0
+        if intermediate_tensors is not None:
+            orig_model_forward_time = intermediate_tensors.tensors.get(
+                "model_forward_time", torch.tensor(0.0)).item()
+        # If there are multiple workers, we are still tracking the latency
+        # from the start time of the driver worker to the end time of the
+        # driver worker. The model forward time will then end up covering
+        # the communication time as well.
+        output.model_forward_time = (orig_model_forward_time +
+                                        model_forward_time)
+
+    if self.return_hidden_states:
+        # we only need to pass hidden states of most recent token
+        assert model_input.sampling_metadata is not None
+        indices = model_input.sampling_metadata.selected_token_indices
+        if model_input.is_prompt:
+            hidden_states = hidden_or_intermediate_states.index_select(
+                0, indices)
+            output.prefill_hidden_states = hidden_or_intermediate_states
+        elif decode_meta.use_cuda_graph:
+            hidden_states = hidden_or_intermediate_states[:len(indices)]
+        else:
+            hidden_states = hidden_or_intermediate_states
+
+        output.hidden_states = hidden_states
+    # 返回结果
+    return [output]
+```
+
+## 5. 总结
+以上就是整个模型执行器从创建、初始化、推理的大致过程，有很多细节本文是忽略的，但是大致流程通过图解可以清晰的表达。这里的attention backend、model加载后的方法绑定简单带过了，接下来的文章，会详细介绍这块的机制，补齐vllm图解的最后一段拼图，敬请期待。
