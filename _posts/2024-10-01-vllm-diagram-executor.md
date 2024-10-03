@@ -4,6 +4,12 @@ title: 图解vllm-执行器与worker
 date: 2024-10-01 16:34:00.000000000 +08:00
 ---
 
+* [图解vllm-原理与架构](https://fy2462.github.io/2024/09/vllm-diagram-overview/)
+* [图解vllm-推理服务与引擎](https://fy2462.github.io/2024/09/vllm-diagram-engin/)
+* [图解vllm-调度器与Block分配](https://fy2462.github.io/2024/09/vllm-diagram-scheduler/)
+* [图解vllm-执行器与worker](https://fy2462.github.io/2024/10/vllm-diagram-executor/)
+* [图解vllm-model之model和attention_backend](https://fy2462.github.io/2024/10/vllm-diagram-atten-backend/)
+
 > 执行器（Executor）是对model worker的一层封装，LLMEngine会根据engine_config来创建确定创建哪个Executor，本文将以RayGPUExecutor为例进行介绍，Ray作为较为常用模型分布式框架，应用场景比较有代表性, 可以实现推理过程中的TP、PP并行推理。
 
 ## 1. Ray模型执行器图解

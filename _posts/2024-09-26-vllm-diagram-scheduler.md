@@ -4,6 +4,12 @@ title: 图解vllm-调度器与Block分配
 date: 2024-09-26 19:42:00.000000000 +08:00
 ---
 
+* [图解vllm-原理与架构](https://fy2462.github.io/2024/09/vllm-diagram-overview/)
+* [图解vllm-推理服务与引擎](https://fy2462.github.io/2024/09/vllm-diagram-engin/)
+* [图解vllm-调度器与Block分配](https://fy2462.github.io/2024/09/vllm-diagram-scheduler/)
+* [图解vllm-执行器与worker](https://fy2462.github.io/2024/10/vllm-diagram-executor/)
+* [图解vllm-model之model和attention_backend](https://fy2462.github.io/2024/10/vllm-diagram-atten-backend/)
+
 > 调度器（Scheduler）决定哪些请求可以参与推理，并为这些请求做好逻辑块->物理块的映射。这个过程只是根据目前step(prefill+decode)收集到的所有信息，对目前GPU的显存进行新的内存分配规划，而未实际操作GPU内存。在模型执行器中，这些规划metadata会最终执行，正式分配相应的内存。下面我们展开调度器中的细节。
 
 ## 1. 调度器图解

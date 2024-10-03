@@ -4,6 +4,12 @@ title: 图解vllm-model之model和attention_backend
 date: 2024-10-03 15:35:00.000000000 +08:00
 ---
 
+* [图解vllm-原理与架构](https://fy2462.github.io/2024/09/vllm-diagram-overview/)
+* [图解vllm-推理服务与引擎](https://fy2462.github.io/2024/09/vllm-diagram-engin/)
+* [图解vllm-调度器与Block分配](https://fy2462.github.io/2024/09/vllm-diagram-scheduler/)
+* [图解vllm-执行器与worker](https://fy2462.github.io/2024/10/vllm-diagram-executor/)
+* [图解vllm-model之model和attention_backend](https://fy2462.github.io/2024/10/vllm-diagram-atten-backend/)
+
 > 通过上文可以了解到，执行器在调用推理接口后，最终将请求传入worker中的ModelRunner进行推理计算，这时如何使用CUDA加速模型attention和forward的推理。另外，对于我们定制化的model是如何加入到vllm的推理框架来使用的。通过本文你可以了解到这一过程背后的逻辑关系。
 
 ## 1. 模型推理图解

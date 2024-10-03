@@ -4,6 +4,12 @@ title: 图解vllm-推理服务与引擎
 date: 2024-09-21 17:52:00.000000000 +08:00
 ---
 
+* [图解vllm-原理与架构](https://fy2462.github.io/2024/09/vllm-diagram-overview/)
+* [图解vllm-推理服务与引擎](https://fy2462.github.io/2024/09/vllm-diagram-engin/)
+* [图解vllm-调度器与Block分配](https://fy2462.github.io/2024/09/vllm-diagram-scheduler/)
+* [图解vllm-执行器与worker](https://fy2462.github.io/2024/10/vllm-diagram-executor/)
+* [图解vllm-model之model和attention_backend](https://fy2462.github.io/2024/10/vllm-diagram-atten-backend/)
+
 > 上文介绍了vLLM的分层架构，本节开始介绍vLLM的入口使用开发和引擎的详细设计。引擎层对使用者而言是承上启下的模块，在这一层不仅会对输入的参数、数据进行简单的处理封装，还会初始化核心模块，将源源不断的request组织起来，驱动迭代，最终返回给用户。
 
 ## 1. 引擎图解

@@ -4,6 +4,12 @@ title: 图解vllm-原理与架构
 date: 2024-09-19 17:26:00.000000000 +08:00
 ---
 
+* [图解vllm-原理与架构](https://fy2462.github.io/2024/09/vllm-diagram-overview/)
+* [图解vllm-推理服务与引擎](https://fy2462.github.io/2024/09/vllm-diagram-engin/)
+* [图解vllm-调度器与Block分配](https://fy2462.github.io/2024/09/vllm-diagram-scheduler/)
+* [图解vllm-执行器与worker](https://fy2462.github.io/2024/10/vllm-diagram-executor/)
+* [图解vllm-model之model和attention_backend](https://fy2462.github.io/2024/10/vllm-diagram-atten-backend/)
+
 > 2024年，我们已经进入大模型全面爆发的时代，作为大模型很重要的工程实践: 推理服务，则成为熟悉和了解大模型工程的关键一环。vLLM是23年开始出现的一款较为优秀的大模型推理框架，很值得学习和研究，我将发布一系列的Blog，针对近期学习vLLM的主要内容，通过图解的方式从工程和算法角度进行总结。本篇文章主要关注于vLLM的原理与整体架构，构建一个全貌，后面的文章会分层逐步细化代码具体实现。
 
 ## 1. Transformer架构模型与KVCache
