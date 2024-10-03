@@ -47,7 +47,4 @@ ga:
 
 kramdown:
   math_engine: MathJax
-  syntax_highlighter_opts:   # Rouge Options › https\://github.com/jneen/rouge#full-options
-    block:
-      line_numbers: true
-      start_line: 1
+
