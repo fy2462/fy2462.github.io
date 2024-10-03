@@ -4,3 +4,13 @@
         <span class="footer__copyright">由 <a href="https://jekyllrb.com">Jekyll</a> 于 {{ site.time | date: "%F" }} 生成，本站{% if site.creator %}由 {{site.creator}} 创建 {% endif %} - &copy; {{site.time | date: "%Y"}}</span>
     </footer>
 </section>
+
+<script>
+var pres = document.getElementsByTagName("pre");
+for(var i = 0; i < pres.length; i++){
+    var pre = pres[i];
+    if(pre.childNodes[0].nodeName == "CODE"){
+        pre.setAttribute("class","line-numbers");
+    }
+}
+</script>
