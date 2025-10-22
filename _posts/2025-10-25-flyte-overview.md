@@ -46,6 +46,16 @@ flyte目前依赖postgres和minio两个公共服务用于存储数据，整体�
 
 2. 控制层(admin)
 
-    为flyte的管理和调度中心，主要负责任务注册、调度、执行状态管理、版本控制与权限治理等
+    为flyte的管理和调度中心，主要负责任务注册、自定义调度、执行状态管理、版本控制与权限治理等，其中主要组件有
 
-    * 。
+    * native scheduler: 主要负责调度用户定义的定时任务（LaunchPlan），即让工作流（Workflow）按照预设的 Cron表达式或固定间隔执行。
+    * auth: 内置了OAuth2授权服务器，即支持第三方的转发授权验证(适用于UI交互)，也可以通过scope、client_id等方式对特定客户端进行授权验证(适用于组件间交互)。
+    * external pub/sub: 主要对内部系统和事件通知做管理，订阅propeller执行层的回调通知（node、workflow执行结果），并可将工作流的执行情况通过邮件、webhook地址等方式发送出去。
+    * workflow engin: 接入配置文件定义的k8s集群，并发送WF CRD, 同时也可以向CRD任务重注入上下文数据、label、annotation、event id等必要的关联和运行信息。
+    * cluster provider: 包括集群的资源、配置、执行队列、白名单、命名空间等资源的创建和管理
+    * API logic manager: 这部分承载API对应的业务逻辑，是db和各个执行模块的枢纽，包括计划任务、执行信息获取、节点执行管理、项目(团队任务)管理、工作流管理、任务信息等。
+    * Grpc server: 此部分是根据protobuf的定义生成的grpc服务代码和HTTP API相关协议的串联模块，其中也包括了trace设置、prometheus、log、https等环节的设置。
+
+3. 执行层(propeller)
+
+    
