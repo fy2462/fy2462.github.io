@@ -6,7 +6,7 @@ date: 2025-10-25 10:35:00.000000000 +08:00
 
 > Flyte 是一个面向机器学习、数据工程和分析工作流的云原生工作流编排平台。它由Lyft开发并开源，目前是Linux Foundation AI & Data下的一个孵化级项目。它的核心设计目标是让用户能够以 可复现、可扩展、类型安全 的方式定义、运行和管理复杂的数据/ML工作流。目前该项目已经可以进行生产级别的部署，并可支撑运行10000+级别的相关workflow任务。
 
-## 1. 组件与架构
+## 1.组件与架构
 
 flyte有如下一些特点，在用户可以很方便的使用，并且插件集丰富，可以轻松扩展到数据处理等其他任务。
 
@@ -58,4 +58,20 @@ flyte目前依赖postgres和minio两个公共服务用于存储数据，整体�
 
 3. 执行层(propeller)
 
-    
+   负责执行workflow，调度其中task到不同的pod，并控制其生命周期和上报执行事件等功能、
+
+   * plugins：通过插件机制，propeller可以接入和灵活发送任意后端请求，主要的插件有：
+        
+        * K8s Plugin: 生成相应的 K8s CRD(Spark、MPIJob、TFJob、RayJob、Dask)
+        * Presto Plugin: 查询分布在多个系统中的大数据 (HDFS、Hive、S3、Mysql、Postgres、MongoDB、kafaka、ES等)
+        * webapi Plugin: 对接成熟的数据仓库子系统(bigquery、snowflake、databricks等) 
+   * WF controller: 监听 FlyteWorkflow CRDs（由 Admin 下发），并调度执行节点，同时管理执行worker_pool，work_queue等并发组件，进行异步任务的并发执行。
+   * compiler: 将接收到的WF CRD进行分解，编译成node、task、branch、subworkflow等子任务，方便进行DAG调度
+   * Node executor: 负责单个节点（task/subworkflow/branch/gate）的执行
+   * Task Executor: 对task调用k8s API调度pod执行
+   * Event Recorder: 上报运行状态至admin(metrics + logs), 通过GRPC回传
+   * State Reconciler: controller核心功能，观察K8S CRD状态，并进行调和控制
+   * propeller manager(optional): 可以将flyte propeeler进行多实例部署，每个实例负责一类任务的处理，并用propeller manager进行统一管理，用户大规模任务的横向扩展
+
+## 2.总结
+   本节通过整体架构简述了flyte使用的目标场景、分层架构，以及组件间的组成结构和关联关系，下一步将按flytekit、flytadmin、flytepropeller、catalog、datacopilot等详细的项目代码分析，方便想对其二次开发的用户找到切入点。
