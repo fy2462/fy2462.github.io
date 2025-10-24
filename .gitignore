@@ -12,3 +12,5 @@ _site
 
 # Thumbnails
 ._*
+config
+vendor
