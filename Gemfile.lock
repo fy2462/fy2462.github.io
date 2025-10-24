@@ -305,6 +305,8 @@ DEPENDENCIES
   github-pages
   jekyll
   jekyll-paginate
+  kramdown
+  rouge
 
 BUNDLED WITH
    2.7.2

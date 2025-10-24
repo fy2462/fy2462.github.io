@@ -45,5 +45,17 @@ ga:
     # id: your_ga_id
     # host: your_host
 
+sass:
+  style: compressed
+
 kramdown:
-  math_engine: MathJax
+  math_engine: mathjax
+  syntax_highlighter: rouge
+  syntax_highlighter_opts: # Rouge Options › https://github.com/jneen/rouge#full-options
+    css_class: highlight
+    # default_lang: console
+    span:
+      line_numbers: true
+    block:
+      line_numbers: false
+      start_line: 1
