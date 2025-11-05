@@ -11,7 +11,8 @@ url: "https://fy2462.github.io"
 permalink: /:year/:month/:title/
 
 # Format
-highlighter: rouge
+# highlighter: rouge
+highlighter: none
 
 # supported colors: blue, green, purple, red, orange or slate. If you need clear, leave it empty.
 cover_color: red
@@ -47,6 +48,9 @@ ga:
 
 sass:
   style: compressed
+
+rouge:
+  theme: monokai
 
 kramdown:
   math_engine: mathjax
