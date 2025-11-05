@@ -18,6 +18,7 @@ admin代码库中有两个入口，一个是server，另外一个是scheduler。
 
 ## 2.server详解
 
+### 2.1插件注册
 server函数入口为: flyteadmin/cmd/main.go, 首先创建插件注册模块
 ```go
 func main() {
@@ -46,4 +47,39 @@ const (
     // 用户WF的执行客户端，向目标集群发送CRD
 	PluginIDWorkflowExecutor       PluginID = "WorkflowExecutor"
 )
+```
+
+### 2.2服务设置与启动
+
+admin使用cobra进行启动命令行参数的解析，在服务启动前会先初始化配置文件，从配置文件、环境变量、参数中读取字段并合并填充，构建全局配置文件供server进行使用。
+
+服务目前支持如下命令参数
+
+| 子命令 | 解释 |
+|:-----|:-----|
+|server| 启动admin server主进程 |
+|secret init | 初始化secret provider |
+|secret create | 用已存在的provider创建secret |
+|migrate run | 执行所有迁移语句至DB |
+|migrate rollback | 回滚某个迁移语句 |
+|migrate seed-projects | 初始化默认项目 |
+|clusterresource run| 运行定期同步任务，同步集群资源至DB |
+|clusterresource run| 手动同步任务，同步集群资源至DB |
+
+我们从server入手开始分析
+```go
+func Serve(ctx context.Context, pluginRegistry *plugins.Registry, additionalHandlers map[string]func(http.ResponseWriter, *http.Request)) error {
+    // 获取服务配置
+	serverConfig := config.GetConfig()
+	configuration := runtime2.NewConfigurationProvider()
+	adminScope := promutils.NewScope(configuration.ApplicationConfiguration().GetTopLevelConfig().GetMetricsScope()).NewSubScope("admin")
+
+    // 如果开启授权，添加授权中间件
+	if serverConfig.Security.Secure {
+		return serveGatewaySecure(ctx, pluginRegistry, serverConfig, authConfig.GetConfig(), storage.GetConfig(), additionalHandlers, adminScope)
+	}
+
+    // 启动非常规授权服务
+	return serveGatewayInsecure(ctx, pluginRegistry, serverConfig, authConfig.GetConfig(), storage.GetConfig(), additionalHandlers, adminScope)
+}
 ```
