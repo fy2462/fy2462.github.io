@@ -9,6 +9,7 @@ date: 2025-11-05 10:35:00.000000000 +08:00
 ## 1.总体架构
 
 admin代码库中有两个入口，一个是server，另外一个是scheduler。
+
 * server是启动grpc和http服务，用于接收外部请求。
 * scheduler是启动另外的独立服务，从DB中fetch出LP相关任务，定时的去进行执行。
 
