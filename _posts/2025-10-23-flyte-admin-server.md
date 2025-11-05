@@ -1,6 +1,6 @@
 ---
 layout: post
-title: 图解flyteML-flyte admin server
+title: 图解flyteML-admin server
 date: 2025-11-05 10:35:00.000000000 +08:00
 ---
 
