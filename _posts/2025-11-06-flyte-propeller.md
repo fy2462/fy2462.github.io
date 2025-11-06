@@ -18,7 +18,7 @@ propeller命令行有3个子命令，总体架构图如下
 
 我们还是从先从controller开始讲起
 
-## 2. controller
+## 2. 创建controller
 
 controller启动的入口函数是executeRootCmd
 
@@ -215,7 +215,7 @@ func StartController(ctx context.Context, cfg *config.Config, defaultNamespace s
 
 ```
 
-可以看到New函数是真正创建服务组件的核心函数
+可以看到New函数是真正创建服务组件的核心函数，
 
 ```go
 func New(ctx context.Context, cfg *config.Config, kubeClientset kubernetes.Interface, flytepropellerClientset clientset.Interface,
@@ -280,19 +280,13 @@ func New(ctx context.Context, cfg *config.Config, kubeClientset kubernetes.Inter
         }
     }
 
-    // WE are disabling this as the metrics have high cardinality. Metrics seem to be emitted per pod and this has problems
-    // when we create new pods
-    // Set Client Metrics Provider
-    // setClientMetricsProvider(scope.NewSubScope("k8s_client"))
-
-    // obtain references to shared index informers for FlyteWorkflow.
-    // 创建client/informers/externalversions/flyteworkflow/v1alpha1 监听
+    // 创建 client/informers/externalversions/flyteworkflow/v1alpha1 监听
     flyteworkflowInformer := flyteworkflowInformerFactory.Flyteworkflow().V1alpha1().FlyteWorkflows()
     controller.flyteworkflowSynced = flyteworkflowInformer.Informer().HasSynced
 
     podTemplateInformer := informerFactory.Core().V1().PodTemplates()
 
-    // set default namespace for pod template store
+    // set default namespace(flyte) for pod template store
     podNamespace, found := os.LookupEnv(podNamespaceEnvVar)
     if !found {
         podNamespace = podDefaultNamespace
@@ -395,3 +389,67 @@ func New(ctx context.Context, cfg *config.Config, kubeClientset kubernetes.Inter
     return controller, nil
 }
 ```
+
+New创建后，后面的几行代码是正式启动服务器，其中Run函数，会启动controler、以及处理线程池、WF GC检查，和监控等等组件。
+
+```go
+func (c *Controller) Run(ctx context.Context) error {
+    if c.leaderElector == nil {
+        logger.Infof(ctx, "Running without leader election.")
+        // 这里如果是多propeller实例的话，需要选举leader，如果为普通propeller，直接启动
+        return c.run(ctx)
+    }
+
+    // 否则设置自己为leader
+    logger.Infof(ctx, "Attempting to acquire leader lease and act as leader.")
+    go c.leaderElector.Run(ctx)
+    <-ctx.Done()
+    return nil
+}
+
+func (le *LeaderElector) Run(ctx context.Context) {
+    defer runtime.HandleCrash()
+    defer le.config.Callbacks.OnStoppedLeading()
+
+    // 此处获取锁，并向Prometheus上报host name
+    if !le.acquire(ctx) {
+        return // ctx signalled done
+    }
+    ctx, cancel := context.WithCancel(ctx)
+    defer cancel()
+    // 获取锁回调，进行业务信息更新, 调用run函数
+    go le.config.Callbacks.OnStartedLeading(ctx)
+    // 尝试向k8s获取锁，失败后上报Prometheus leader退出
+    le.renew(ctx)
+}
+
+func (c *Controller) run(ctx context.Context) error {
+    // Initializing WorkerPool
+    logger.Info(ctx, "Initializing controller")
+    if err := c.workerPool.Initialize(ctx); err != nil {
+        return err
+    }
+
+    // Start the WF GC
+    if err := c.gc.StartGC(ctx); err != nil {
+        logger.Errorf(ctx, "failed to start background GC")
+        return err
+    }
+
+    // Start the collector process
+    c.levelMonitor.RunCollector(ctx)
+    c.executionStats.RunStatsMonitor(ctx)
+
+    // Start the informer factories to begin populating the informer caches
+    logger.Info(ctx, "Starting FlyteWorkflow controller")
+    return c.workerPool.Run(ctx, c.numWorkers, c.flyteworkflowSynced)
+}
+
+```
+
+至此controller开始正式监听k8s事件和WF CRD，CRD会通过getWorkflowUpdatesHandler返回的informer回调触发controller的action
+
+![flyte_propeller](/images/flyte/4/propeller-controller-new.png)
+
+## 2. CRD驱动逻辑
+
