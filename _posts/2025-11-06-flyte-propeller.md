@@ -390,7 +390,7 @@ func New(ctx context.Context, cfg *config.Config, kubeClientset kubernetes.Inter
 }
 ```
 
-New创建后，后面的几行代码是正式启动服务器，其中Run函数，会启动controler、以及处理线程池、WF GC检查，和监控等等组件。
+New创建后，后面的几行代码是正式启动服务器，其中Run函数，会启动controller、以及处理线程池、WF GC检查，和监控等等组件。
 
 ```go
 func (c *Controller) Run(ctx context.Context) error {
@@ -451,5 +451,300 @@ func (c *Controller) run(ctx context.Context) error {
 
 ![flyte_propeller](/images/flyte/4/propeller-controller-new.png)
 
-## 2. CRD驱动逻辑
+## 3. CRD执行逻辑
 
+当getWorkflowUpdatesHandler收到CRD信息后，会放入队列(CompositeWorkQueue)中，当然如果已经进行中的工作流被更新后，也会重新加入此队列中进行再次分发处理。
+
+最终任务被线程池中的worker取出，调用Handle处理函数，handle函数会根据每个WF设置目前的执行状态，状态流转如下
+
+```go
+func (p *Propeller) Handle(ctx context.Context, namespace, name string) error {
+    //
+    //    +--------+        +---------+        +------------+     +---------+
+    //    |        |        |         |        |            |     |         |
+    //    | Ready  +--------> Running +--------> Succeeding +-----> Success |
+    //    |        |        |         |        |            |     |         |
+    //    +--------+        +---------+        +------------+     +---------+
+    //        |                  |
+    //        |                  |
+    //        |             +----v----+        +---------------------+        +--------+
+    //        |             |         |        |     (optional)      |        |        |
+    //        +-------------> Failing +--------> HandlingFailureNode +--------> Failed |
+    //                      |         |        |                     |        |        |
+    //                      +---------+        +---------------------+        +--------+
+    //
+    // 从内存中间件中取出WF
+    w, fetchErr := p.wfStore.Get(ctx, namespace, nam
+
+    // ...
+
+    // 终态
+    if w.GetExecutionStatus().IsTerminated() {
+        // Checking for the old finalizer for backwards compatibility
+        // This should be eventually removed
+        if HasCompletedLabel(w) && !controllerutil.ContainsFinalizer(w, Finalizer) && !controllerutil.ContainsFinalizer(w, OldFinalizer) {
+            logger.Debugf(ctx, "Workflow is terminated.")
+            // This workflow had previously completed, let us ignore it
+            return nil
+        }
+    }
+
+    // 如果存在引用WF(由于WF太大，存储量对象存储，我们使用ref再次导入WF)
+    var wfClosureCrdFields *k8s.WfClosureCrdFields
+    var err error
+    // 存储引用WF
+    if len(w.WorkflowClosureReference) > 0 {
+        wfClosureCrdFields, err = p.parseWorkflowClosureCrdFields(ctx, w.WorkflowClosureReference)
+        if err != nil {
+            return err
+        }
+    }
+
+    // 对于每个任务进行重试
+    for streak = 0; streak < maxLength; streak++ {
+        w, err = p.streak(ctx, w, wfClosureCrdFields)
+        if err != nil {
+            return err
+        } else if w == nil {
+            break
+        }
+
+        logger.Infof(ctx, "FastFollow Enabled. Detected State change, we will try another round. StreakLength [%d]", streak)
+    }
+
+}
+
+```
+
+最终streak会调用TryMutateWorkflow对目前WF进行更新
+
+```go
+func (p *Propeller) TryMutateWorkflow(ctx context.Context, originalW *v1alpha1.FlyteWorkflow) (*v1alpha1.FlyteWorkflow, error) {
+
+    t := p.metrics.DeepCopyTime.Start()
+    mutableW := originalW.DeepCopy()
+    t.Stop()
+    ctx = contextutils.WithWorkflowID(ctx, mutableW.GetID())
+    if execID := mutableW.GetExecutionID(); execID.WorkflowExecutionIdentifier != nil {
+        ctx = contextutils.WithProjectDomain(ctx, mutableW.GetExecutionID().Project, mutableW.GetExecutionID().Domain)
+    }
+    ctx = contextutils.WithResourceVersion(ctx, mutableW.GetResourceVersion())
+
+    maxRetries := uint32(p.cfg.MaxWorkflowRetries) // #nosec G115
+    // 用户标记为删除
+    if !mutableW.GetDeletionTimestamp().IsZero() || mutableW.Status.FailedAttempts > maxRetries {
+        var err error
+        func() {
+            defer func() {
+                if r := recover(); r != nil {
+                    stack := debug.Stack()
+                    err = fmt.Errorf("panic when aborting workflow, Stack: [%s]", string(stack))
+                    logger.Errorf(ctx, err.Error())
+                    p.metrics.PanicObserved.Inc(ctx)
+                }
+            }()
+            // 执行任务终止流程，会通知k8s结束此任务，并同步admin
+            err = p.workflowExecutor.HandleAbortedWorkflow(ctx, mutableW, maxRetries)
+        }()
+        if err != nil {
+            p.metrics.AbortError.Inc(ctx)
+            return nil, err
+        }
+        return mutableW, nil
+    }
+
+    // 查看现状状态，并执行
+    if !mutableW.GetExecutionStatus().IsTerminated() {
+        var err error
+        _ = controllerutil.AddFinalizer(mutableW, Finalizer)
+        SetDefinitionVersionIfEmpty(mutableW, v1alpha1.LatestWorkflowDefinitionVersion)
+
+        func() {
+            t := p.metrics.RawWorkflowTraversalTime.Start(ctx)
+            defer func() {
+                t.Stop()
+                if r := recover(); r != nil {
+                    stack := debug.Stack()
+                    err = fmt.Errorf("panic when reconciling workflow, Stack: [%s]", string(stack))
+                    logger.Errorf(ctx, err.Error())
+                    p.metrics.PanicObserved.Inc(ctx)
+                }
+            }()
+            // 此函数进行正常状态处理和流转
+            err = p.workflowExecutor.HandleFlyteWorkflow(ctx, mutableW)
+        }()
+        if err != nil {
+            logger.Errorf(ctx, "Error when trying to reconcile workflow. Error [%v]. Error Type[%v]",
+                err, reflect.TypeOf(err))
+            p.metrics.SystemError.Inc(ctx)
+            return nil, err
+        }
+    } else {
+        logger.Warn(ctx, "Workflow is marked as terminated but doesn't have the completed label, marking it as completed.")
+    }
+    return mutableW, nil
+}
+```
+
+HandleFlyteWorkflow函数会根据当前运行的状态分发到不同的执行handle中，此时node执行器会根据任务的不同类型，去使用不同插件进行实际的状态转换变更。
+我们以其中handleReadyWorkflow为例
+
+```go
+func (c *workflowExecutor) handleReadyWorkflow(ctx context.Context, w *v1alpha1.FlyteWorkflow) (Status, error) {
+
+    startNode := w.StartNode()
+    if startNode == nil {
+        return StatusFailing(&core.ExecutionError{
+            Kind:    core.ExecutionError_SYSTEM,
+            Code:    errors.BadSpecificationError.String(),
+            Message: "StartNode not found."}), nil
+    }
+
+    ref, err := c.constructWorkflowMetadataPrefix(ctx, w)
+    if err != nil {
+        return StatusFailing(&core.ExecutionError{
+            Kind:    core.ExecutionError_SYSTEM,
+            Code:    "MetadataPrefixCreationFailure",
+            Message: err.Error()}), nil
+    }
+    w.GetExecutionStatus().SetDataDir(ref)
+    inputs := &core.LiteralMap{}
+    if w.Inputs != nil {
+        if len(w.OffloadedInputs) > 0 {
+            return StatusFailing(&core.ExecutionError{
+                Kind:    core.ExecutionError_SYSTEM,
+                Code:    errors.BadSpecificationError.String(),
+                Message: "cannot specify inline inputs AND offloaded inputs"}), nil
+        }
+        inputs = w.Inputs.LiteralMap
+    } else if len(w.OffloadedInputs) > 0 {
+        err = c.store.ReadProtobuf(ctx, w.OffloadedInputs, inputs)
+        if err != nil {
+            return StatusFailing(&core.ExecutionError{
+                Kind:    core.ExecutionError_SYSTEM,
+                Code:    "OffloadedInputsReadFailure",
+                Message: err.Error()}), nil
+        }
+    }
+    // Before starting the subworkflow, lets set the inputs for the Workflow. The inputs for a SubWorkflow are essentially
+    // Copy of the inputs to the Node
+    nodeStatus := w.GetNodeExecutionStatus(ctx, startNode.GetID())
+    dataDir, err := c.store.ConstructReference(ctx, ref, startNode.GetID(), "data")
+    if err != nil {
+        return StatusFailing(&core.ExecutionError{
+            Kind:    core.ExecutionError_SYSTEM,
+            Code:    "MetadataPrefixCreationFailure",
+            Message: err.Error()}), nil
+    }
+    outputDir, err := c.store.ConstructReference(ctx, dataDir, "0")
+    if err != nil {
+        return StatusFailing(&core.ExecutionError{
+            Kind:    core.ExecutionError_SYSTEM,
+            Code:    "MetadataPrefixCreationFailure",
+            Message: err.Error()}), nil
+    }
+
+    logger.Infof(ctx, "Setting the MetadataDir for StartNode [%v]", dataDir)
+    nodeStatus.SetDataDir(dataDir)
+    nodeStatus.SetOutputDir(outputDir)
+    execcontext := executors.NewExecutionContext(w, w, w, nil, executors.InitializeControlFlow())
+    // 定位到nodeExecutor，然后执行此node task
+    s, err := c.nodeExecutor.SetInputsForStartNode(ctx, execcontext, w, executors.NewNodeLookup(w, w.GetExecutionStatus(), w), inputs)
+    if err != nil {
+        return StatusReady, err
+    }
+
+    if s.HasFailed() {
+        return StatusFailing(s.Err), nil
+    }
+    // 并返回目前的转移状态
+    return StatusRunning, nil
+}
+```
+
+向SetInputsForStartNode发送input后，nodeExecutor会调用通过PluginsRegistry获取对应task的插件组件，然后执行对应的CRD启动流程。以上就是完成了图所示的整个步骤。如下图所示
+
+![flyte_propeller](/images/flyte/4/flyte-propeller-execute.png)
+
+## 4. 插件注册与使用
+
+最后，我们再介绍一下propeller的插件系统，flyte一大亮点就是插件系统，覆盖从客户端、admin到propeller。propeller的插件是在函数入口时进行引用。
+
+```go
+package main
+
+import (
+    "github.com/flyteorg/flyte/flytepropeller/cmd/controller/cmd"
+    // 插件注册
+    _ "github.com/flyteorg/flyte/flytepropeller/plugins"
+)
+
+func main() {
+    cmd.Execute()
+}
+
+// flytepropeller/plugins/loader.go 文件
+package plugins
+
+import (
+    // Common place to import all plugins, so that it can be imported by Singlebinary (flytelite) or by propeller main
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/array/awsbatch"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/array/k8s"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/k8s/dask"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/k8s/kfoperators/mpi"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/k8s/kfoperators/pytorch"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/k8s/kfoperators/tensorflow"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/k8s/pod"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/k8s/ray"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/k8s/spark"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/testing"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/webapi/athena"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/webapi/bigquery"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/webapi/databricks"
+    _ "github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/webapi/snowflake"
+)
+
+// 以"github.com/flyteorg/flyte/flyteplugins/go/tasks/plugins/k8s/kfoperators/pytorch"为例
+// 会在模块初始化的时候注册插件
+func init() {
+    if err := kubeflowv1.AddToScheme(scheme.Scheme); err != nil {
+        panic(err)
+    }
+
+    pluginmachinery.PluginRegistry().RegisterK8sPlugin(
+        k8s.PluginEntry{
+            ID:                  common.PytorchTaskType,
+            RegisteredTaskTypes: []pluginsCore.TaskType{common.PytorchTaskType},
+            ResourceToWatch:     &kubeflowv1.PyTorchJob{},
+            Plugin:              pytorchOperatorResourceHandler{},
+            IsDefault:           false,
+        })
+}
+
+```
+
+插件系统需要实现以下接口, 从而可以让nodeexecute可以标注调度
+
+```go
+type Plugin interface {
+    // Defines a func to create a query object (typically just object and type meta portions) that's used to query k8s
+    // resources.
+    BuildIdentityResource(ctx context.Context, taskCtx pluginsCore.TaskExecutionMetadata) (client.Object, error)
+
+    // Defines a func to create the full resource object that will be posted to k8s.
+    BuildResource(ctx context.Context, taskCtx pluginsCore.TaskExecutionContext) (client.Object, error)
+
+    // Analyses the k8s resource and reports the status as TaskPhase. This call is expected to be relatively fast,
+    // any operations that might take a long time (limits are configured system-wide) should be offloaded to the
+    // background.
+    GetTaskPhase(ctx context.Context, pluginContext PluginContext, resource client.Object) (pluginsCore.PhaseInfo, error)
+
+    // Properties desired by the plugin
+    GetProperties() PluginProperties
+}
+
+```
+
+## 5 总结
+
+以上步骤，展示了propeller从服务器启动、CRD监听、状态转移和执行等步骤。至此，整个flyte主流程都已经介绍完毕，后续还会介绍一些旁路组件，比如flytecopilot、datacatalog、flytectl等。
