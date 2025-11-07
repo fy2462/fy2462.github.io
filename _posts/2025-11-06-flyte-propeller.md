@@ -1,6 +1,6 @@
 ---
 layout: post
-title: 图解flyteML-propeller
+title: 图解flyteML编排-propeller控制器
 date: 2025-11-06 10:35:00.000000000 +08:00
 ---
 
