@@ -4,6 +4,11 @@ title: 图解flyteML-admin server
 date: 2025-11-05 10:35:00.000000000 +08:00
 ---
 
+* [图解flyteML编排-综述](https://fy2462.github.io/2025/10/flyte-overview/)
+* [图解flyteML编排-flytekit SDK](https://fy2462.github.io/2025/11/flyte-sdk/)
+* [图解flyteML编排-admin服务器](https://fy2462.github.io/2025/11/flyte-admin-server/)
+* [图解flyteML编排-propeller控制器](https://fy2462.github.io/2025/11/flyte-propeller/)
+
 > Flyte admin作为整个训练任务请求的中枢服务，对外承接WEB UI、SDK、CMD等工具链的通信服务，并与对象存储、DB联动，存储业务类数据，制定WF计划，编译WF模型成CRD，发送和收集第三方平台信息等。下面我们详细来看一下admin的业务流程。
 
 ## 1.总体架构

@@ -4,6 +4,11 @@ title: 图解flyteML-propeller
 date: 2025-11-06 10:35:00.000000000 +08:00
 ---
 
+* [图解flyteML编排-综述](https://fy2462.github.io/2025/10/flyte-overview/)
+* [图解flyteML编排-flytekit SDK](https://fy2462.github.io/2025/11/flyte-sdk/)
+* [图解flyteML编排-admin服务器](https://fy2462.github.io/2025/11/flyte-admin-server/)
+* [图解flyteML编排-propeller控制器](https://fy2462.github.io/2025/11/flyte-propeller/)
+
 > Flyte propeller作为集群当中真正的执行器，负责CRD的监听、集群资源的分配、三方子系统的交互和向admin server反馈等等
 
 ## 1.总体架构

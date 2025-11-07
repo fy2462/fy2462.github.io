@@ -4,6 +4,11 @@ title: 图解flyteML编排-综述
 date: 2025-10-23 10:35:00.000000000 +08:00
 ---
 
+* [图解flyteML编排-综述](https://fy2462.github.io/2025/10/flyte-overview/)
+* [图解flyteML编排-flytekit SDK](https://fy2462.github.io/2025/11/flyte-sdk/)
+* [图解flyteML编排-admin服务器](https://fy2462.github.io/2025/11/flyte-admin-server/)
+* [图解flyteML编排-propeller控制器](https://fy2462.github.io/2025/11/flyte-propeller/)
+
 > Flyte 是一个面向机器学习、数据工程和分析工作流的云原生工作流编排平台。它由Lyft开发并开源，目前是Linux Foundation AI & Data下的一个孵化级项目。它的核心设计目标是让用户能够以 可复现、可扩展、类型安全 的方式定义、运行和管理复杂的数据/ML工作流。目前该项目已经可以进行生产级别的部署，并可支撑运行10000+级别的相关workflow任务。
 
 ## 1.组件与架构
