@@ -4,6 +4,11 @@ title: RLinf 图解-Dynamic Scheduler
 date: 2026-04-16 10:35:00.000000000 +08:00
 ---
 
+* [RLinf图解-Framework 与 Single Controller](http://fy2462.github.io/2026/03/rlinf-framework-copy/)
+* [RLinf图解-Channel 与 Worker 通信](https://fy2462.github.io/2026/03/rlinf-channel-copy/)
+* [RLinf图解-Dynamic Scheduler](https://fy2462.github.io/2026/04/rlinf-auto-scheduler-copy/)
+* [RLinf图解-Workflow 与 Data](https://fy2462.github.io/2026/05/rlinf-workflow/)
+
 > 在真实大规模训练时，我们往往要使用 DP+PP+TP 等并行化技术，可以通过[这篇文章](https://zhuanlan.zhihu.com/p/1977001916039964151)详细了解，从而实现超大参数模型的分布式的高利用率训练。
 > 那么在 RLinf 内部的动态调度，如让 GPU 可以更高效的被使用？本文将探究这个问题。
 

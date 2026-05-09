@@ -4,6 +4,11 @@ title: RLinf 图解-Workflow 与 Data
 date: 2026-05-09 10:35:00.000000000 +08:00
 ---
 
+* [RLinf图解-Framework 与 Single Controller](http://fy2462.github.io/2026/03/rlinf-framework-copy/)
+* [RLinf图解-Channel 与 Worker 通信](https://fy2462.github.io/2026/03/rlinf-channel-copy/)
+* [RLinf图解-Dynamic Scheduler](https://fy2462.github.io/2026/04/rlinf-auto-scheduler-copy/)
+* [RLinf图解-Workflow 与 Data](https://fy2462.github.io/2026/05/rlinf-workflow/)
+
 > Rlinf 中的 worker group和 runner 是组织算法的 workflow，通过 Runner 实现 MPMD的流程控制，通过 Worker Group实现 SPMD 的分布式控制，本章以具身 RL 训练为例子，详解一下 worker 之间的交互和具体的数据格式，为后续开发和改造提供理论基础
 
 ## 1. Runner主流程

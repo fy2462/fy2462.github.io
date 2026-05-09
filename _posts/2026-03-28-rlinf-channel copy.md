@@ -4,6 +4,11 @@ title: RLinf 图解-Channel 与 Worker 通信
 date: 2026-03-28 10:35:00.000000000 +08:00
 ---
 
+* [RLinf图解-Framework 与 Single Controller](http://fy2462.github.io/2026/03/rlinf-framework-copy/)
+* [RLinf图解-Channel 与 Worker 通信](https://fy2462.github.io/2026/03/rlinf-channel-copy/)
+* [RLinf图解-Dynamic Scheduler](https://fy2462.github.io/2026/04/rlinf-auto-scheduler-copy/)
+* [RLinf图解-Workflow 与 Data](https://fy2462.github.io/2026/05/rlinf-workflow/)
+
 > Channel作为 RLinf 中的常用通信组件，起到了组件间目的向串联功能，从而通过 channel 中的数据流动驱动 worker 的业务逻辑处理。同样 worker 本身分布在集群的各个节点上，本身也需要进行通信，那么他们实现的呢？本文将一探究竟。
 
 ## 1. Channel实现
