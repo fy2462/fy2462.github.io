@@ -124,7 +124,8 @@ component_placement = HybridComponentPlacement(cfg, cluster)
       * 通过维护 _file_offsets 字典，它能记住每个文件上次读取的位置，从而只同步增量内容。
    3. Ray 运行时 ID 解析
       * 它利用 Ray 的内部 API（ worker._global_node ）获取集群的日志根目录。
-      * 通过_resolve_registered_workers方法，通过查询到的 Actor中pid 和 node_id ，进一步反查出 Ray 分配给该进程的唯一 worker_id。然后 Ray 的日志文件遵循特定的命名规范： worker-{worker_id}-{job_id?}-{pid}.{out|err}，因此就找到了具体进程的日志，并进行收集。
+      * 通过resolve_registered_workers方法，查询到的 Actor中pid 和 node_id，进一步反查出 Ray 分配给该进程的唯一 worker_id。
+      * 然后 Ray 的日志文件遵循特定的命名规范: worker-{worker_id}-{job_id?}-{pid}.{out\|err}, 因此就找到了具体进程的日志，并进行收集。
 5. 收集 node 信息
    ```python
    # Get node info
